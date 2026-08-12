@@ -1,8 +1,8 @@
 name: Build Windows release
 
 on:
-  push:
-    tags: ["v*"]
+  release:
+    types: [published]
 
 permissions:
   contents: write
@@ -10,33 +10,49 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
+
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install -r requirements.txt
-      - run: pyinstaller --clean NightOwlUtilities.spec
-      - name: Build update manifest
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Build Windows EXE
+        run: pyinstaller --clean NightOwlUtilities.spec
+
+      - name: Create update manifest
         shell: pwsh
         run: |
-          $version = "${{ github.ref_name }}".TrimStart("v")
+          $tag = "${{ github.event.release.tag_name }}"
+          $version = $tag.TrimStart("v")
           $hash = (Get-FileHash dist/NightOwlUtilities.exe -Algorithm SHA256).Hash.ToLower()
+
           $manifest = [ordered]@{
             version = $version
-            url = "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/NightOwlUtilities.exe"
+            url = "https://github.com/${{ github.repository }}/releases/download/$tag/NightOwlUtilities.exe"
             sha256 = $hash
           }
+
           $manifest | ConvertTo-Json | Set-Content latest.json
-      - name: Publish release
+
+      - name: Upload EXE to release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${{ github.ref_name }}" dist/NightOwlUtilities.exe --generate-notes
+        shell: pwsh
+        run: |
+          gh release upload "${{ github.event.release.tag_name }}" `
+            dist/NightOwlUtilities.exe `
+            --clobber
+
       - name: Publish update manifest
         shell: pwsh
         run: |
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add latest.json
-          git commit -m "Update manifest for ${{ github.ref_name }}"
+          git commit -m "Update manifest for ${{ github.event.release.tag_name }}"
           git push origin HEAD:main
